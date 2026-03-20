@@ -1,36 +1,77 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Hotel Shift AI の画面モックと、ローカル開発用 PostgreSQL を Docker でまとめて起動できるプロジェクトです。`Next.js + Capacitor` で iOS / Android 対応できる構成にしています。
 
-## Getting Started
+## 起動方法
 
-First, run the development server:
+1. `.env.example` を `.env` にコピーします。
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. アプリと DB をまとめて起動します。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+docker compose up --build
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+バックグラウンド起動にする場合:
 
-## Learn More
+```bash
+docker compose up -d --build
+```
 
-To learn more about Next.js, take a look at the following resources:
+ブラウザで [http://localhost:3000](http://localhost:3000) を開くと画面を確認できます。
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## モバイルアプリ対応
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Web UI は静的書き出しされ、Capacitor 経由でネイティブアプリへ組み込みます。
 
-## Deploy on Vercel
+```bash
+npm run build:mobile
+npm run cap:sync
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+詳細は [capacitor-setup.md](/Users/Yuuki/Documents/3.個人用/hotel/my-app/docs/capacitor-setup.md) を参照してください。
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 構成
+
+- `app`: Next.js 開発サーバー
+- `db`: PostgreSQL 16
+
+アプリコンテナ内では `DATABASE_URL` が自動的に次の値になります。
+
+```env
+DATABASE_URL=postgresql://hotel_admin:hotel_password@db:5432/hotel_shift
+```
+
+ホストマシンから直接 DB 接続する場合は、`.env` にある以下の値を使います。
+
+```env
+DATABASE_URL=postgresql://hotel_admin:hotel_password@localhost:5432/hotel_shift
+```
+
+## 初期スキーマ
+
+初回起動時に [001_schema.sql](/Users/Yuuki/Documents/3.個人用/hotel/my-app/docker/db/init/001_schema.sql) が自動実行され、以下のベーステーブルが作成されます。
+
+- `stores`
+- `staff`
+- `shift_types`
+- `shift_requirements`
+- `shift_assignments`
+- `leave_requests`
+- `paid_leave_balances`
+
+## 停止と再初期化
+
+停止:
+
+```bash
+docker compose down
+```
+
+ボリュームごと削除して初期化し直す場合:
+
+```bash
+docker compose down -v
+```
