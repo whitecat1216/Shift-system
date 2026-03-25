@@ -1,0 +1,35 @@
+{
+  "id": "restaurant",
+  "name": "飲食店",
+  "labels": {
+    "dashboardTitle": "勤務ダッシュボード",
+    "scheduleTitle": "勤務表",
+    "requestsTitle": "休み希望一覧",
+    "leaveControlTitle": "休暇・希望管理",
+    "leaveBalanceTitle": "休暇残数管理",
+    "staffTitle": "クルー管理",
+    "aiTitle": "AI勤務生成",
+    "laborCostTitle": "人件費管理",
+    "store": "店舗",
+    "staffSingle": "クルー",
+    "staffPlural": "クルー",
+    "requestSingle": "休暇申請",
+    "publish": "確定シフトを作成",
+    "unpublish": "公開を解除",
+    "published": "公開中",
+    "draft": "下書き",
+    "requestAdd": "休暇申請を追加"
+  },
+  "employmentTypes": ["社員", "パート", "アルバイト"],
+  "qualifications": ["一般", "調理可", "レジ可", "店長候補"],
+  "shiftTypes": [
+    { "code": "OP", "label": "開店", "shortLabel": "開", "colorToken": "amber", "hours": 6 },
+    { "code": "MD", "label": "中番", "shortLabel": "中", "colorToken": "sky", "hours": 6 },
+    { "code": "CL", "label": "閉店", "shortLabel": "閉", "colorToken": "slate", "hours": 7 }
+  ],
+  "specialShifts": {
+    "off": { "code": "OFF", "label": "休み", "colorToken": "muted" },
+    "unassigned": { "code": "-", "label": "未設定", "colorToken": "empty" }
+  },
+  "requestTypes": ["休み希望", "休暇申請"]
+}

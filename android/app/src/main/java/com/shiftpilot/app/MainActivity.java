@@ -1,4 +1,4 @@
-package com.hotelshift.app;
+package com.shiftpilot.app;
 
 import com.getcapacitor.BridgeActivity;
 

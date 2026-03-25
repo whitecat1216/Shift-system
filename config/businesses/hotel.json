@@ -1,0 +1,35 @@
+{
+  "id": "hotel",
+  "name": "ホテル",
+  "labels": {
+    "dashboardTitle": "ダッシュボード",
+    "scheduleTitle": "シフト表",
+    "requestsTitle": "希望休一覧",
+    "leaveControlTitle": "有給・希望休管理",
+    "leaveBalanceTitle": "有給残日数管理",
+    "staffTitle": "スタッフ管理",
+    "aiTitle": "AIシフト生成",
+    "laborCostTitle": "人件費管理",
+    "store": "店舗",
+    "staffSingle": "スタッフ",
+    "staffPlural": "スタッフ",
+    "requestSingle": "申請",
+    "publish": "確定版を作成",
+    "unpublish": "公開を解除",
+    "published": "公開中",
+    "draft": "下書き",
+    "requestAdd": "申請を追加"
+  },
+  "employmentTypes": ["正社員", "パート", "アルバイト"],
+  "qualifications": ["一般", "英語対応", "夜勤可", "責任者"],
+  "shiftTypes": [
+    { "code": "A", "label": "早番", "shortLabel": "早", "colorToken": "amber", "hours": 8 },
+    { "code": "B", "label": "中番", "shortLabel": "中", "colorToken": "sky", "hours": 8 },
+    { "code": "N", "label": "夜勤", "shortLabel": "夜", "colorToken": "slate", "hours": 9 }
+  ],
+  "specialShifts": {
+    "off": { "code": "休", "label": "休み", "colorToken": "muted" },
+    "unassigned": { "code": "-", "label": "未設定", "colorToken": "empty" }
+  },
+  "requestTypes": ["希望休", "有給"]
+}

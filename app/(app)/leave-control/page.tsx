@@ -4,7 +4,7 @@ import { AppShell, InfoList, SectionCard, StatGrid } from "../ui";
 import { countRequestStatus, getStaffName, useAppState } from "../state";
 
 export default function LeaveControlPage() {
-  const { state } = useAppState();
+  const { state, businessConfig } = useAppState();
   const pendingRows: {
     primary: string;
     secondary: string;
@@ -33,14 +33,14 @@ export default function LeaveControlPage() {
     <AppShell
       activePath="/leave-control"
       eyebrow="Control"
-      title="有給・希望休管理"
+      title={businessConfig.labels.leaveControlTitle}
       description="希望休一覧と同じ状態を参照し、承認待ちを集約して確認できます。"
     >
       <div className="space-y-6">
         <StatGrid
           items={[
-            { label: "有給申請", value: `${state.leaveRequests.filter((request) => request.type === "有給").length}件`, detail: "フロントのローカル状態" },
-            { label: "希望休連携", value: `${state.leaveRequests.filter((request) => request.type === "希望休").length}件`, detail: "希望休一覧と連動" },
+            { label: businessConfig.requestTypes[1] ?? businessConfig.labels.requestSingle, value: `${state.leaveRequests.filter((request) => request.type === businessConfig.requestTypes[1]).length}件`, detail: "担当者スコープで DB 集計" },
+            { label: businessConfig.requestTypes[0] ?? businessConfig.labels.requestSingle, value: `${state.leaveRequests.filter((request) => request.type === businessConfig.requestTypes[0]).length}件`, detail: "申請一覧と連動" },
             { label: "承認待ち", value: `${countRequestStatus(state.leaveRequests, "pending")}件`, detail: "優先処理対象" },
             { label: "差し戻し/調整", value: `${countRequestStatus(state.leaveRequests, "adjusting")}件`, detail: "再調整が必要" },
           ]}

@@ -1,33 +1,110 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import type { AiSettings } from "../mock-data";
 import { AppShell, InfoList, SectionCard, StatGrid } from "../ui";
 import { calculateFillRate, countRequestStatus, useAppState } from "../state";
 
+type AiHistoryRow = {
+  id: string;
+  planName: string;
+  monthLabel: string;
+  adoptedAt: string;
+  fillRate: number;
+  overtimeDelta: number;
+  violations: number;
+  storeName: string | null;
+  notes: string | null;
+};
+
 export default function AiShiftPage() {
-  const { state, generateAiPlans, applyAiPlan } = useAppState();
+  const { state, businessConfig, generateAiPlans, applyAiPlan, refreshFromServer } = useAppState();
   const appliedPlan = state.aiPlans.find((plan) => plan.applied);
+  const [settings, setSettings] = useState<AiSettings>(state.aiSettings);
+  const [isSaving, setIsSaving] = useState(false);
+  const [historyRows, setHistoryRows] = useState<AiHistoryRow[]>([]);
+
+  useEffect(() => {
+    setSettings(state.aiSettings);
+  }, [state.aiSettings]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    void fetch(
+      `/api/ai-settings?business=${state.businessId}&store=${state.selectedStoreId}&month=${encodeURIComponent(state.currentMonth)}`,
+      { cache: "no-store" },
+    )
+      .then((response) => response.json())
+      .then((payload: { settings?: AiSettings }) => {
+        if (!ignore && payload.settings) {
+          setSettings(payload.settings);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [state.businessId, state.currentMonth, state.selectedStoreId]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    void fetch(`/api/ai-plan-history?business=${state.businessId}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload: { rows?: AiHistoryRow[] }) => {
+        if (!ignore) {
+          setHistoryRows(payload.rows ?? []);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [state.businessId, state.aiPlans]);
+
+  async function saveSettingsAndRefresh() {
+    setIsSaving(true);
+
+    try {
+      await fetch("/api/ai-settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          businessId: state.businessId,
+          storeId: state.selectedStoreId,
+          settings,
+        }),
+      });
+      await refreshFromServer();
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   return (
     <AppShell
       activePath="/ai-shift"
       eyebrow="Generation"
-      title="AIシフト生成"
-      description="AI案の再生成と採用切替ができます。採用結果はシフト表へ反映されます。"
+      title={businessConfig.labels.aiTitle}
+      description="制約条件を保存し、その条件で AI 案を再評価できます。採用結果は勤務表へ反映されます。"
       actions={
         <>
           <button
             className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600"
-            onClick={generateAiPlans}
+            onClick={saveSettingsAndRefresh}
             type="button"
           >
-            条件テンプレートを再評価
+            {isSaving ? "保存中..." : "条件を保存"}
           </button>
           <button
             className="rounded-xl bg-[#0d2a4f] px-4 py-2 text-sm font-semibold text-white"
             onClick={generateAiPlans}
             type="button"
           >
-            新規生成
+            再評価
           </button>
         </>
       }
@@ -36,41 +113,143 @@ export default function AiShiftPage() {
         <StatGrid
           items={[
             { label: "最新生成", value: `${state.aiPlans.length}案`, detail: `${state.currentMonth} / ${state.stores.find((store) => store.id === state.selectedStoreId)?.name}` },
-            { label: "充足率平均", value: `${calculateFillRate(state)}%`, detail: "現在の採用案ベース" },
-            { label: "承認待ち申請", value: `${countRequestStatus(state.leaveRequests, "pending")}件`, detail: "希望休制約に含める対象" },
+            { label: "充足率平均", value: `${calculateFillRate(state, businessConfig)}%`, detail: "現在の採用案ベース" },
+            { label: "承認待ち申請", value: `${countRequestStatus(state.leaveRequests, "pending")}件`, detail: settings.includePendingRequests ? "制約に含める" : "制約から除外" },
             { label: "採用中", value: appliedPlan?.name ?? "-", detail: appliedPlan?.notes ?? "未選択" },
           ]}
         />
 
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
           <SectionCard
             title="生成条件"
-            description="現時点ではローカル状態の条件を前提にしています。"
+            description="保存した条件は、担当者・業種・店舗単位で DB に保持されます。"
           >
-            <InfoList
-              rows={[
-                {
-                  primary: "夜勤後の連続勤務を禁止",
-                  secondary: "翌日は必ず休み、または遅番のみ許可。",
-                  meta: "必須",
-                },
-                {
-                  primary: "ベテランを各シフトに1名以上配置",
-                  secondary: "責任者資格を持つスタッフを優先。",
-                  meta: "高優先",
-                },
-                {
-                  primary: `希望休の承認待ち ${countRequestStatus(state.leaveRequests, "pending")} 件`,
-                  secondary: "承認待ち申請は制約強度を落として比較対象に含めます。",
-                  meta: "動的",
-                },
-              ]}
-            />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-700">テンプレート名</span>
+                <input
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+                  onChange={(event) =>
+                    setSettings((current) => ({ ...current, templateName: event.target.value }))
+                  }
+                  value={settings.templateName}
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-700">各シフトの責任者人数</span>
+                <input
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+                  min={0}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      minManagerPerShift: Number(event.target.value),
+                    }))
+                  }
+                  type="number"
+                  value={settings.minManagerPerShift}
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-700">夜勤後の休息日数</span>
+                <input
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+                  min={0}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      nightRestDays: Number(event.target.value),
+                    }))
+                  }
+                  type="number"
+                  value={settings.nightRestDays}
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-700">月間残業上限</span>
+                <input
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+                  min={0}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      maxMonthlyOvertimeHours: Number(event.target.value),
+                    }))
+                  }
+                  type="number"
+                  value={settings.maxMonthlyOvertimeHours}
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-700">兼務活用ウェイト</span>
+                <input
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+                  max={100}
+                  min={0}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      multiStoreWeight: Number(event.target.value),
+                    }))
+                  }
+                  type="range"
+                  value={settings.multiStoreWeight}
+                />
+                <p className="mt-1 text-xs text-slate-500">{settings.multiStoreWeight}</p>
+              </label>
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-700">人件費ウェイト</span>
+                <input
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+                  max={100}
+                  min={0}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      laborCostWeight: Number(event.target.value),
+                    }))
+                  }
+                  type="range"
+                  value={settings.laborCostWeight}
+                />
+                <p className="mt-1 text-xs text-slate-500">{settings.laborCostWeight}</p>
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="text-sm font-semibold text-slate-700">申請優先ウェイト</span>
+                <input
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+                  max={100}
+                  min={0}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      requestPriorityWeight: Number(event.target.value),
+                    }))
+                  }
+                  type="range"
+                  value={settings.requestPriorityWeight}
+                />
+                <p className="mt-1 text-xs text-slate-500">{settings.requestPriorityWeight}</p>
+              </label>
+              <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 sm:col-span-2">
+                <input
+                  checked={settings.includePendingRequests}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      includePendingRequests: event.target.checked,
+                    }))
+                  }
+                  type="checkbox"
+                />
+                <span className="text-sm text-slate-700">承認待ち申請も制約に含める</span>
+              </label>
+            </div>
           </SectionCard>
 
           <SectionCard
             title="生成結果サマリ"
-            description="採用ボタンでシフト表の一部セルに反映します。"
+            description="保存済み条件でサーバー側再計算した案を表示します。"
           >
             <div className="space-y-3">
               {state.aiPlans.map((plan) => (
@@ -101,6 +280,59 @@ export default function AiShiftPage() {
             </div>
           </SectionCard>
         </div>
+
+        <SectionCard
+          title="評価ポイント"
+          description="現在の保存条件から、評価ロジックへ反映している内容です。"
+        >
+          <InfoList
+            rows={[
+              {
+                primary: `責任者を各シフト ${settings.minManagerPerShift} 名以上`,
+                secondary: "責任者不足がある案は違反件数として重く扱います。",
+                meta: "固定条件",
+              },
+              {
+                primary: `夜勤後は ${settings.nightRestDays} 日休息`,
+                secondary: "休息日数が多いほど、充足率より負荷分散を優先します。",
+                meta: "勤務制約",
+              },
+              {
+                primary: `申請優先 ${settings.requestPriorityWeight} / 人件費 ${settings.laborCostWeight}`,
+                secondary: `承認待ち申請 ${countRequestStatus(state.leaveRequests, "pending")} 件を ${
+                  settings.includePendingRequests ? "評価に含めています" : "評価から除外しています"
+                }。`,
+                meta: "重み付け",
+              },
+            ]}
+          />
+        </SectionCard>
+
+        <SectionCard
+          title="採用履歴"
+          description="どの担当者が、どの店舗・どの月でどの案を採用したかを DB に保存しています。"
+        >
+          <div className="space-y-3">
+            {historyRows.map((row) => (
+              <div key={row.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-slate-900">{row.planName}</p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {row.monthLabel} / {row.storeName ?? "全体"} / {new Date(row.adoptedAt).toLocaleString("ja-JP")}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">
+                    充足率 {row.fillRate}%
+                  </span>
+                </div>
+                <p className="mt-3 text-sm text-slate-600">
+                  残業差分 {row.overtimeDelta}h / 違反 {row.violations}件 / {row.notes ?? "メモなし"}
+                </p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
       </div>
     </AppShell>
   );

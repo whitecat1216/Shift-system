@@ -1,33 +1,137 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { AppShell, InfoList, SectionCard, StatGrid } from "../ui";
 import { calculateLaborCost, calculateFillRate, useAppState } from "../state";
 
 export default function LaborCostPage() {
-  const { state } = useAppState();
-  const laborCost = calculateLaborCost(state);
-  const budget = 4_430_000;
+  const { state, businessConfig } = useAppState();
+  const laborCost = calculateLaborCost(state, businessConfig);
+  const [budget, setBudget] = useState(4_430_000);
+  const [draftBudget, setDraftBudget] = useState("4430000");
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    let ignore = false;
+
+    void fetch(
+      `/api/labor-budget?business=${state.businessId}&store=${state.selectedStoreId}&month=${encodeURIComponent(state.currentMonth)}`,
+      { cache: "no-store" },
+    )
+      .then((response) => response.json())
+      .then((payload: { budget?: { budgetAmount: number } | null }) => {
+        if (!ignore && payload.budget?.budgetAmount) {
+          setBudget(payload.budget.budgetAmount);
+          setDraftBudget(String(payload.budget.budgetAmount));
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [state.businessId, state.currentMonth, state.selectedStoreId]);
+
   const diff = budget - laborCost;
-  const fillRate = calculateFillRate(state);
+  const fillRate = calculateFillRate(state, businessConfig);
+  const nightAllowance = useMemo(() => Math.round(laborCost * 0.14), [laborCost]);
+
+  async function saveBudget() {
+    const nextBudget = Number(draftBudget);
+    if (!Number.isFinite(nextBudget) || nextBudget < 0) {
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      await fetch("/api/labor-budget", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          businessId: state.businessId,
+          storeId: state.selectedStoreId,
+          monthLabel: state.currentMonth,
+          budgetAmount: nextBudget,
+        }),
+      });
+
+      setBudget(nextBudget);
+      setIsEditing(false);
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   return (
     <AppShell
       activePath="/labor-cost"
       eyebrow="Cost"
-      title="人件費管理"
-      description="スタッフ追加やシフト編集の結果を人件費に反映しています。"
+      title={businessConfig.labels.laborCostTitle}
+      description="担当者の権限スコープ内で、人件費見込みと月次予算を DB ベースで管理します。"
     >
       <div className="space-y-6">
         <StatGrid
           items={[
-            { label: "今月予算", value: `¥${budget.toLocaleString()}`, detail: "全店舗合計の仮予算" },
+            { label: "今月予算", value: `¥${budget.toLocaleString()}`, detail: "選択店舗の DB 予算" },
             { label: "見込み実績", value: `¥${laborCost.toLocaleString()}`, detail: `予算比 ${diff >= 0 ? "-" : "+"}¥${Math.abs(diff).toLocaleString()}` },
-            { label: "深夜手当相当", value: `¥${Math.round(laborCost * 0.14).toLocaleString()}`, detail: "夜勤セルから簡易算出" },
+            { label: "深夜手当相当", value: `¥${nightAllowance.toLocaleString()}`, detail: "夜勤セルから簡易算出" },
             { label: "充足率", value: `${fillRate}%`, detail: "シフト充足と人件費を併読" },
           ]}
         />
 
         <div className="grid gap-6 lg:grid-cols-2">
+          <SectionCard title="予算設定" description="月・店舗ごとの人件費予算を保存できます。">
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">
+                  対象: {state.currentMonth} / {state.stores.find((store) => store.id === state.selectedStoreId)?.name}
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">¥{budget.toLocaleString()}</p>
+              </div>
+
+              {isEditing ? (
+                <div className="space-y-3">
+                  <input
+                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+                    inputMode="numeric"
+                    onChange={(event) => setDraftBudget(event.target.value)}
+                    value={draftBudget}
+                  />
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      className="rounded-xl bg-[#0d2a4f] px-4 py-2 text-sm font-semibold text-white"
+                      onClick={saveBudget}
+                      type="button"
+                    >
+                      {isSaving ? "保存中..." : "予算を保存"}
+                    </button>
+                    <button
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600"
+                      onClick={() => {
+                        setDraftBudget(String(budget));
+                        setIsEditing(false);
+                      }}
+                      type="button"
+                    >
+                      キャンセル
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600"
+                  onClick={() => setIsEditing(true)}
+                  type="button"
+                >
+                  予算を編集
+                </button>
+              )}
+            </div>
+          </SectionCard>
+
           <SectionCard title="注視ポイント" description="現在のフロント状態から動的に計算したコメントです。">
             <InfoList
               rows={[
@@ -51,16 +155,16 @@ export default function LaborCostPage() {
             />
           </SectionCard>
 
-          <SectionCard title="集計メモ" description="DB/API 接続時に置き換えやすい粒度で残しています。">
+          <SectionCard title="集計メモ" description="予算も実績も DB/API を基準に扱える状態です。">
             <div className="space-y-3 text-sm text-slate-600">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                シフト見込みから勤務時間を推定し、時給マスタと掛け合わせて簡易人件費を算出。
+                DB 上のシフト割当とスタッフ時給から勤務時間を集計し、人件費を算出しています。
               </div>
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                スタッフ管理で追加した時給も即時計算対象になります。
+                月次予算は担当者スコープで保存され、同じ店舗・月を開くと再取得されます。
               </div>
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                実データ接続時は勤怠実績テーブルに差し替えるだけで済む構成です。
+                将来は勤怠実績テーブルへ差し替えることで、実績ベースの人件費へ移行できます。
               </div>
             </div>
           </SectionCard>
