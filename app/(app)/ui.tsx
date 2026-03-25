@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { useAuth } from "./auth-context";
+import { useAppState } from "./state";
 
 type NavItem = {
   href: string;
@@ -52,6 +53,7 @@ export function AppShell({
   children: ReactNode;
 }) {
   const auth = useAuth();
+  const { dismissToast, hasUnsavedChanges, pendingChanges, toastItems } = useAppState();
   const pathname = usePathname();
   const router = useRouter();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -68,6 +70,22 @@ export function AppShell({
       router.replace(auth.allowedPagePaths[0] ?? "/login");
     }
   }, [auth.allowedPagePaths, isForbiddenPath, router]);
+
+  useEffect(() => {
+    if (toastItems.length === 0) {
+      return;
+    }
+
+    const timers = toastItems.map((item) =>
+      window.setTimeout(() => {
+        dismissToast(item.id);
+      }, 2600),
+    );
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [dismissToast, toastItems]);
 
   if (isForbiddenPath) {
     return null;
@@ -142,27 +160,30 @@ export function AppShell({
           </div>
         </aside>
 
-        <section className="flex-1 px-3 pb-24 pt-3 sm:p-6 lg:p-8 lg:pb-8">
+        <section className="flex-1 px-3 pb-28 pt-3 sm:p-6 lg:p-8 lg:pb-8">
           <div className="mb-3 rounded-[24px] bg-[#071b34] p-4 text-white shadow-[0_18px_40px_rgba(7,27,52,0.18)] lg:hidden">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex items-center gap-3">
                 <div className="grid h-10 w-10 place-items-center rounded-xl bg-amber-400/90 font-black text-[#071b34]">
                   S
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-slate-200">{eyebrow}</p>
-                  <p className="text-lg font-bold leading-tight">{title}</p>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">{eyebrow}</p>
+                  <p className="truncate text-lg font-bold leading-tight">{title}</p>
                   <p className="mt-1 text-xs text-slate-300">{auth.displayName}</p>
                 </div>
               </div>
-              <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-slate-200">
-                Demo
-              </span>
+              <button
+                className="shrink-0 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[11px] font-semibold text-slate-100"
+                disabled={isLoggingOut}
+                onClick={handleLogout}
+                type="button"
+              >
+                {isLoggingOut ? "..." : "ログアウト"}
+              </button>
             </div>
-            <p className="mt-3 text-sm leading-6 text-slate-300">
-              {description}
-            </p>
-            <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+            <p className="mt-3 text-sm leading-6 text-slate-300">{description}</p>
+            <div className="-mx-1 mt-4 flex gap-2 overflow-x-auto px-1 pb-1">
               {primaryMobileNav.map((item) => {
                 const active = item.href === activePath;
 
@@ -184,6 +205,15 @@ export function AppShell({
           <div className="overflow-hidden rounded-[22px] bg-white shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/70 sm:rounded-[28px]">
             <header className="border-b border-slate-200 px-4 py-5 sm:px-6 sm:py-6">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="lg:hidden">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">
+                      {eyebrow}
+                    </p>
+                    <h1 className="mt-2 text-xl font-bold tracking-tight text-slate-900">{title}</h1>
+                    <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+                  </div>
+                </div>
                 <div className="hidden lg:block">
                   <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
                     {eyebrow}
@@ -197,9 +227,19 @@ export function AppShell({
                   <p className="mt-2 text-sm text-slate-500">{description}</p>
                   <p className="mt-2 text-xs font-medium text-slate-400">{auth.displayName}</p>
                 </div>
-                {actions ? <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap sm:gap-3">{actions}</div> : null}
+                {actions ? (
+                  <div className="grid w-full gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:flex-wrap lg:gap-3">
+                    {actions}
+                  </div>
+                ) : null}
               </div>
             </header>
+
+            {hasUnsavedChanges ? (
+              <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800 sm:px-6">
+                未保存変更を反映中です。保存キュー {pendingChanges} 件
+              </div>
+            ) : null}
 
             <div className="p-4 sm:p-6">{children}</div>
           </div>
@@ -230,6 +270,30 @@ export function AppShell({
           })}
         </ul>
       </nav>
+
+      <div className="pointer-events-none fixed left-3 right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-40 flex flex-col gap-3 sm:left-auto sm:right-4 sm:w-[min(360px,calc(100vw-2rem))]">
+        {toastItems.map((item) => (
+          <div
+            key={item.id}
+            className={`pointer-events-auto rounded-2xl border px-4 py-3 text-sm font-medium shadow-[0_18px_40px_rgba(15,23,42,0.12)] ${
+              item.tone === "success"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-rose-200 bg-rose-50 text-rose-800"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <span>{item.message}</span>
+              <button
+                className="rounded-lg px-2 py-1 text-xs font-semibold opacity-70 transition hover:opacity-100"
+                onClick={() => dismissToast(item.id)}
+                type="button"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
     </main>
   );
 }

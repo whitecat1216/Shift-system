@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getShiftClassName } from "../business-config";
 import { ActionButton, AppShell, SectionCard } from "../ui";
 import { dayHeaders, ShiftCode } from "../mock-data";
@@ -47,6 +47,7 @@ export default function ShiftsPage() {
     [],
   );
   const visibleDays = weekGroups[selectedWeek] ?? weekGroups[0];
+  const [selectedDay, setSelectedDay] = useState<number>(visibleDays[0]?.day ?? 1);
   const visibleRequirements = showOnlyAttention
     ? businessConfig.shiftTypes.filter((shiftType) =>
         visibleDays.some(({ day }) => {
@@ -69,6 +70,11 @@ export default function ShiftsPage() {
       }).length
     );
   }, 0);
+  const mobileDay = visibleDays.find((day) => day.day === selectedDay) ?? visibleDays[0];
+
+  useEffect(() => {
+    setSelectedDay(visibleDays[0]?.day ?? 1);
+  }, [selectedWeek, state.currentMonth]);
 
   return (
     <AppShell
@@ -159,7 +165,123 @@ export default function ShiftsPage() {
           </div>
         </SectionCard>
 
-        <div className="overflow-x-auto">
+        <div className="space-y-4 lg:hidden">
+          <SectionCard
+            title="スマホ表示"
+            description="スマホでは日ごとのカード表示に切り替えています。"
+          >
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+              {visibleDays.map((day) => {
+                const isActive = mobileDay?.day === day.day;
+                return (
+                  <button
+                    key={day.day}
+                    className={`min-w-[72px] rounded-2xl border px-3 py-3 text-center text-sm font-semibold ${
+                      isActive
+                        ? "border-[#0d2a4f] bg-[#0d2a4f] text-white"
+                        : "border-slate-200 bg-white text-slate-600"
+                    }`}
+                    onClick={() => setSelectedDay(day.day)}
+                    type="button"
+                  >
+                    <div>{day.day}日</div>
+                    <div className="mt-1 text-xs opacity-80">{day.weekday}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title={`${mobileDay?.day ?? "-"}日 ${mobileDay?.weekday ?? ""} の必要人数`}
+            description="不足している勤務帯を上から確認できます。"
+          >
+            <div className="space-y-3">
+              {visibleRequirements.map((shiftType) => {
+                const required =
+                  requirements.find(
+                    (item) => item.day === (mobileDay?.day ?? 1) && item.code === shiftType.code,
+                  )?.required ?? 0;
+                const covered = coverage[shiftType.code]?.[(mobileDay?.day ?? 1) - 1] ?? 0;
+                const shortage = Math.max(0, required - covered);
+
+                return (
+                  <div
+                    key={shiftType.code}
+                    className={`rounded-2xl border px-4 py-3 ${
+                      shortage > 0
+                        ? "border-rose-200 bg-rose-50 text-rose-800"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-semibold">{shiftType.label}</span>
+                      <span className="text-sm">
+                        {covered}/{required}人
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="スタッフ別シフト"
+            description="タップで勤務区分を順送りに変更できます。"
+          >
+            <div className="space-y-3">
+              {currentStaff.map((member) => {
+                const shiftIndex = (mobileDay?.day ?? 1) - 1;
+                const shift =
+                  state.assignments[member.id]?.[shiftIndex] ??
+                  businessConfig.specialShifts.unassigned.code;
+                const hasRequest = state.leaveRequests.some(
+                  (request) =>
+                    request.staffId === member.id && request.days.includes(mobileDay?.day ?? 1),
+                );
+
+                return (
+                  <div key={member.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-900">{member.name}</p>
+                        <p className="mt-1 text-xs text-slate-500">{member.qualification}</p>
+                      </div>
+                      {hasRequest ? (
+                        <span className="rounded-full bg-violet-100 px-3 py-1 text-[11px] font-semibold text-violet-700">
+                          申請あり
+                        </span>
+                      ) : null}
+                    </div>
+                    <button
+                      className="mt-4 flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                      onClick={() => {
+                        const order: ShiftCode[] = [
+                          businessConfig.specialShifts.unassigned.code,
+                          ...businessConfig.shiftTypes.map((shiftType) => shiftType.code),
+                          businessConfig.specialShifts.off.code,
+                        ];
+                        const nextCode = order[(order.indexOf(shift) + 1) % order.length];
+                        updateAssignment(member.id, mobileDay?.day ?? 1, nextCode);
+                      }}
+                      type="button"
+                    >
+                      <span className="text-sm font-medium text-slate-600">勤務区分</span>
+                      <span
+                        className={`grid h-9 min-w-9 place-items-center rounded-lg px-3 text-xs font-bold ${getShiftClassName(shift, businessConfig)}`}
+                      >
+                        {shift}
+                      </span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </SectionCard>
+        </div>
+
+        <div className="hidden overflow-x-auto lg:block">
           <div className="min-w-max">
             <div
               className="grid rounded-t-2xl bg-[#0d2a4f] text-white"

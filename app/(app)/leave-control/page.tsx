@@ -14,7 +14,13 @@ export default function LeaveControlPage() {
     .filter((request) => request.status !== "approved")
     .map((request) => ({
       primary: `${getStaffName(state.staff, request.staffId)} の${request.type}申請`,
-      secondary: `${request.days.join(", ")}日 / ${request.reason}`,
+      secondary: `${request.days.join(", ")}日 / ${request.reason}${
+        request.adjustmentNote ? ` / コメント: ${request.adjustmentNote}` : ""
+      }${
+        request.reviewedByName
+          ? ` / 担当: ${request.reviewedByName}`
+          : ""
+      }`,
       meta:
         request.status === "pending"
           ? "要確認"

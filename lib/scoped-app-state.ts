@@ -40,6 +40,9 @@ type LeaveRequestRow = {
   status: string;
   reason: string | null;
   created_at: string;
+  reviewed_at: string | null;
+  reviewed_by_name: string | null;
+  adjustment_note: string | null;
 };
 
 type RequirementRow = {
@@ -137,12 +140,16 @@ export async function getScopedAppState(
             lr.ends_on::text,
             lr.status,
             lr.reason,
-            lr.created_at::text
+            lr.created_at::text,
+            lr.reviewed_at::text,
+            reviewer.display_name AS reviewed_by_name,
+            lr.adjustment_note
           FROM leave_requests lr
           INNER JOIN staff st ON st.id = lr.staff_id
           INNER JOIN stores s ON s.id = st.store_id
           INNER JOIN business_types bt ON bt.id = st.business_type_id
           INNER JOIN request_type_master rtm ON rtm.id = lr.request_type_id
+          LEFT JOIN users reviewer ON reviewer.id = lr.reviewed_by
           WHERE bt.code = $1
             AND s.code = ANY($2::text[])
             AND lr.starts_on <= $4::date
@@ -244,6 +251,9 @@ export async function getScopedAppState(
     reason: row.reason ?? "",
     status: normalizeRequestStatus(row.status),
     createdAt: row.created_at.slice(0, 10),
+    reviewedAt: row.reviewed_at,
+    reviewedByName: row.reviewed_by_name,
+    adjustmentNote: row.adjustment_note,
   }));
 
   const shiftRequirements: ShiftRequirement[] = requirementsResult.rows.map((row) => ({
@@ -435,13 +445,22 @@ export async function createScopedLeaveRequest(
 
 export async function updateScopedLeaveRequestStatus(
   user: AuthenticatedUser,
-  payload: { businessId: BusinessId; requestId: string; status: RequestStatus },
+  payload: { businessId: BusinessId; requestId: string; status: RequestStatus; note?: string | null },
 ) {
   const pool = getPool();
   await pool.query(
     `
       UPDATE leave_requests lr
-      SET status = $1, updated_at = NOW()
+      SET
+        status = $1,
+        reviewed_by = CASE WHEN $1 = 'pending' THEN NULL ELSE $5 END,
+        reviewed_at = CASE WHEN $1 = 'pending' THEN NULL ELSE NOW() END,
+        adjustment_note = CASE
+          WHEN $1 IN ('adjusting', 'rejected') THEN NULLIF($6, '')
+          WHEN $1 = 'pending' THEN NULL
+          ELSE lr.adjustment_note
+        END,
+        updated_at = NOW()
       FROM staff st
       INNER JOIN stores s ON s.id = st.store_id
       INNER JOIN business_types bt ON bt.id = st.business_type_id
@@ -450,7 +469,7 @@ export async function updateScopedLeaveRequestStatus(
         AND bt.code = $3
         AND s.code = ANY($4::text[])
     `,
-    [payload.status, payload.requestId, payload.businessId, user.allowedStoreIds],
+    [payload.status, payload.requestId, payload.businessId, user.allowedStoreIds, user.id, payload.note ?? null],
   );
 }
 

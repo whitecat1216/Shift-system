@@ -30,6 +30,12 @@ export type AccessScope = {
   initialBusinessId: BusinessId;
 };
 
+export type ToastItem = {
+  id: string;
+  message: string;
+  tone: "success" | "error";
+};
+
 function normalizeStoredState(value: unknown): AppState {
   if (!value || typeof value !== "object") {
     return createBusinessState("hotel");
@@ -84,13 +90,17 @@ type AppContextValue = {
   state: AppState;
   businessConfig: BusinessConfig;
   selectedStoreName: string;
+  pendingChanges: number;
+  hasUnsavedChanges: boolean;
+  toastItems: ToastItem[];
+  dismissToast: (id: string) => void;
   refreshFromServer: () => Promise<void>;
   setBusiness: (businessId: BusinessId) => void;
   setSelectedStore: (storeId: string) => void;
   togglePublished: () => void;
   changeMonth: (direction: "prev" | "next") => void;
   updateAssignment: (staffId: string, day: number, code: ShiftCode) => void;
-  updateRequestStatus: (requestId: string, status: RequestStatus) => void;
+  updateRequestStatus: (requestId: string, status: RequestStatus, note?: string) => void;
   addLeaveRequest: (request: Omit<LeaveRequest, "id" | "status" | "createdAt">) => void;
   addStaff: (staff: Omit<StaffMember, "id" | "active">) => void;
   applyAiPlan: (planId: string) => void;
@@ -114,6 +124,8 @@ export function AppStateProvider({
     applyAccessScope(createBusinessState(accessScope.initialBusinessId), accessScope),
   );
   const [remoteBusinessConfig, setRemoteBusinessConfig] = useState<BusinessConfig | null>(null);
+  const [pendingChanges, setPendingChanges] = useState(0);
+  const [toastItems, setToastItems] = useState<ToastItem[]>([]);
 
   const businessConfig =
     remoteBusinessConfig?.id === state.businessId
@@ -122,6 +134,44 @@ export function AppStateProvider({
 
   const selectedStoreName =
     state.stores.find((store) => store.id === state.selectedStoreId)?.name ?? "拠点未設定";
+
+  function pushToast(message: string, tone: ToastItem["tone"]) {
+    const id =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random()}`;
+
+    setToastItems((current) => [...current, { id, message, tone }]);
+  }
+
+  function dismissToast(id: string) {
+    setToastItems((current) => current.filter((item) => item.id !== id));
+  }
+
+  async function runTrackedMutation(
+    request: Promise<Response>,
+    messages: { success: string; error: string },
+    options?: { refresh?: { businessId: BusinessId; monthLabel: string } },
+  ) {
+    setPendingChanges((current) => current + 1);
+
+    try {
+      const response = await request;
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      pushToast(messages.success, "success");
+
+      if (options?.refresh) {
+        await refreshFromServer(options.refresh.businessId, options.refresh.monthLabel);
+      }
+    } catch {
+      pushToast(messages.error, "error");
+    } finally {
+      setPendingChanges((current) => Math.max(0, current - 1));
+    }
+  }
 
   useEffect(() => {
     let ignore = false;
@@ -176,6 +226,10 @@ export function AppStateProvider({
       state,
       businessConfig,
       selectedStoreName,
+      pendingChanges,
+      hasUnsavedChanges: pendingChanges > 0,
+      toastItems,
+      dismissToast,
       refreshFromServer: () => refreshFromServer(),
       setBusiness: (businessId) => {
         if (!accessScope.allowedBusinessIds.includes(businessId)) {
@@ -197,18 +251,24 @@ export function AppStateProvider({
       togglePublished: () =>
         setState((current) => {
           const nextPublished = !current.published;
-          void fetch("/api/publish", {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              businessId: current.businessId,
-              storeId: current.selectedStoreId,
-              monthLabel: current.currentMonth,
-              published: nextPublished,
+          void runTrackedMutation(
+            fetch("/api/publish", {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                businessId: current.businessId,
+                storeId: current.selectedStoreId,
+                monthLabel: current.currentMonth,
+                published: nextPublished,
+              }),
             }),
-          });
+            {
+              success: nextPublished ? "公開状態を更新しました。" : "公開を解除しました。",
+              error: "公開状態の更新に失敗しました。",
+            },
+          );
 
           return {
             ...current,
@@ -230,19 +290,25 @@ export function AppStateProvider({
         }),
       updateAssignment: (staffId, day, code) =>
         setState((current) => {
-          void fetch("/api/shift-assignments", {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              businessId: current.businessId,
-              staffId,
-              day,
-              code,
-              monthLabel: current.currentMonth,
+          void runTrackedMutation(
+            fetch("/api/shift-assignments", {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                businessId: current.businessId,
+                staffId,
+                day,
+                code,
+                monthLabel: current.currentMonth,
+              }),
             }),
-          });
+            {
+              success: `シフトを保存しました。`,
+              error: "シフトの保存に失敗しました。",
+            },
+          );
 
           return {
             ...current,
@@ -254,23 +320,46 @@ export function AppStateProvider({
             },
           };
         }),
-      updateRequestStatus: (requestId, status) =>
+      updateRequestStatus: (requestId, status, note) =>
         setState((current) => {
-          void fetch(`/api/leave-requests/${requestId}`, {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              businessId: current.businessId,
-              status,
+          void runTrackedMutation(
+            fetch(`/api/leave-requests/${requestId}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                businessId: current.businessId,
+                status,
+                note,
+              }),
             }),
-          });
+            {
+              success: "申請ステータスを更新しました。",
+              error: "申請ステータスの更新に失敗しました。",
+            },
+            {
+              refresh: {
+                businessId: current.businessId,
+                monthLabel: current.currentMonth,
+              },
+            },
+          );
 
           return {
             ...current,
             leaveRequests: current.leaveRequests.map((request) =>
-              request.id === requestId ? { ...request, status } : request,
+              request.id === requestId
+                ? {
+                    ...request,
+                    status,
+                    reviewedAt: status === "pending" ? null : new Date().toISOString(),
+                    adjustmentNote:
+                      status === "adjusting" || status === "rejected"
+                        ? note ?? request.adjustmentNote ?? null
+                        : null,
+                  }
+                : request,
             ),
           };
         }),
@@ -281,20 +370,26 @@ export function AppStateProvider({
               ? `req-${crypto.randomUUID()}`
               : `req-${Date.now()}`;
 
-          void fetch("/api/leave-requests", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              businessId: current.businessId,
-              staffId: request.staffId,
-              requestType: request.type,
-              days: request.days,
-              reason: request.reason,
-              monthLabel: current.currentMonth,
+          void runTrackedMutation(
+            fetch("/api/leave-requests", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                businessId: current.businessId,
+                staffId: request.staffId,
+                requestType: request.type,
+                days: request.days,
+                reason: request.reason,
+                monthLabel: current.currentMonth,
+              }),
             }),
-          });
+            {
+              success: "申請を保存しました。",
+              error: "申請の保存に失敗しました。",
+            },
+          );
 
           return {
             ...current,
@@ -316,25 +411,35 @@ export function AppStateProvider({
               ? `staff-${crypto.randomUUID()}`
               : `staff-${Date.now()}`;
 
-          void fetch("/api/staff", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              businessId: current.businessId,
-              name: staff.name,
-              storeId: staff.storeId,
-              employmentType: staff.employmentType,
-              qualification: staff.qualification,
-              role: staff.role,
-              hourlyWage: staff.hourlyWage,
-              nightAvailable: staff.nightAvailable,
-              multiStoreAvailable: staff.multiStoreAvailable,
+          void runTrackedMutation(
+            fetch("/api/staff", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                businessId: current.businessId,
+                name: staff.name,
+                storeId: staff.storeId,
+                employmentType: staff.employmentType,
+                qualification: staff.qualification,
+                role: staff.role,
+                hourlyWage: staff.hourlyWage,
+                nightAvailable: staff.nightAvailable,
+                multiStoreAvailable: staff.multiStoreAvailable,
+              }),
             }),
-          }).then(() => {
-            void refreshFromServer(current.businessId, current.currentMonth);
-          });
+            {
+              success: "スタッフを追加しました。",
+              error: "スタッフの追加に失敗しました。",
+            },
+            {
+              refresh: {
+                businessId: current.businessId,
+                monthLabel: current.currentMonth,
+              },
+            },
+          );
 
           return {
             ...current,
@@ -354,20 +459,30 @@ export function AppStateProvider({
         }),
       applyAiPlan: (planId) =>
         setState((current) => {
-          void fetch("/api/ai-plans/apply", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              businessId: current.businessId,
-              planId,
-              monthLabel: current.currentMonth,
-              storeId: current.selectedStoreId,
+          void runTrackedMutation(
+            fetch("/api/ai-plans/apply", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                businessId: current.businessId,
+                planId,
+                monthLabel: current.currentMonth,
+                storeId: current.selectedStoreId,
+              }),
             }),
-          }).then(() => {
-            void refreshFromServer(current.businessId, current.currentMonth);
-          });
+            {
+              success: "AI案を採用しました。",
+              error: "AI案の採用に失敗しました。",
+            },
+            {
+              refresh: {
+                businessId: current.businessId,
+                monthLabel: current.currentMonth,
+              },
+            },
+          );
 
           const nextAssignments = deepClone(current.assignments);
           const targetPlan = current.aiPlans.find((plan) => plan.id === planId);
@@ -412,7 +527,7 @@ export function AppStateProvider({
       generateAiPlans: () =>
         void refreshFromServer(),
     }),
-    [accessScope, businessConfig, selectedStoreName, state],
+    [accessScope, businessConfig, pendingChanges, selectedStoreName, state, toastItems],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

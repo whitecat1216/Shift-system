@@ -24,7 +24,11 @@ export async function PATCH(
     }
 
     const { id } = await context.params;
-    const body = (await request.json()) as { businessId?: string; status?: string };
+    const body = (await request.json()) as {
+      businessId?: string;
+      status?: string;
+      note?: string;
+    };
 
     if (!body.businessId || !isBusinessId(body.businessId) || !body.status || !isRequestStatus(body.status)) {
       return NextResponse.json({ message: "Invalid payload." }, { status: 400 });
@@ -34,6 +38,7 @@ export async function PATCH(
       businessId: body.businessId,
       requestId: id,
       status: body.status,
+      note: body.note ?? null,
     });
 
     return NextResponse.json({ ok: true });

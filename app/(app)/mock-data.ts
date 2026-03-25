@@ -31,6 +31,9 @@ export type LeaveRequest = {
   reason: string;
   status: RequestStatus;
   createdAt: string;
+  reviewedAt?: string | null;
+  reviewedByName?: string | null;
+  adjustmentNote?: string | null;
 };
 
 export type ShiftRequirement = {
@@ -111,10 +114,10 @@ export function createHotelState(): AppState {
       { id: "staff-7", name: "伊藤 さくら", storeId: "shinagawa", employmentType: "アルバイト", role: "フロント", shiftSkills: ["B", "N"], qualification: "夜勤可", nightAvailable: true, multiStoreAvailable: false, hourlyWage: 1500, active: true }
     ],
     leaveRequests: [
-      { id: "req-1", staffId: "staff-6", type: "希望休", days: [7, 8], reason: "私用", status: "approved", createdAt: "2026-02-19" },
+      { id: "req-1", staffId: "staff-6", type: "希望休", days: [7, 8], reason: "私用", status: "approved", createdAt: "2026-02-19", reviewedAt: "2026-02-20T10:00:00+09:00", reviewedByName: "ホテル担当" },
       { id: "req-2", staffId: "staff-3", type: "希望休", days: [12], reason: "通院", status: "pending", createdAt: "2026-02-21" },
-      { id: "req-3", staffId: "staff-7", type: "有給", days: [20, 21], reason: "帰省", status: "approved", createdAt: "2026-02-17" },
-      { id: "req-4", staffId: "staff-4", type: "希望休", days: [29], reason: "研修", status: "adjusting", createdAt: "2026-02-24" },
+      { id: "req-3", staffId: "staff-7", type: "有給", days: [20, 21], reason: "帰省", status: "approved", createdAt: "2026-02-17", reviewedAt: "2026-02-18T16:00:00+09:00", reviewedByName: "ホテル担当" },
+      { id: "req-4", staffId: "staff-4", type: "希望休", days: [29], reason: "研修", status: "adjusting", createdAt: "2026-02-24", reviewedAt: "2026-02-25T09:30:00+09:00", reviewedByName: "ホテル担当", adjustmentNote: "繁忙日のため別日で再申請してください。" },
       { id: "req-5", staffId: "staff-2", type: "有給", days: [22, 23], reason: "家族都合", status: "pending", createdAt: "2026-02-25" }
     ],
     shiftRequirements: dayHeaders.flatMap(({ day }) => [
@@ -175,8 +178,8 @@ export function createRestaurantState(): AppState {
     ],
     leaveRequests: [
       { id: "rreq-1", staffId: "crew-2", type: "休み希望", days: [6, 7], reason: "帰省", status: "pending", createdAt: "2026-02-20" },
-      { id: "rreq-2", staffId: "crew-3", type: "休暇申請", days: [14], reason: "私用", status: "approved", createdAt: "2026-02-18" },
-      { id: "rreq-3", staffId: "crew-5", type: "休み希望", days: [21, 22], reason: "試験", status: "adjusting", createdAt: "2026-02-24" }
+      { id: "rreq-2", staffId: "crew-3", type: "休暇申請", days: [14], reason: "私用", status: "approved", createdAt: "2026-02-18", reviewedAt: "2026-02-19T11:00:00+09:00", reviewedByName: "飲食担当" },
+      { id: "rreq-3", staffId: "crew-5", type: "休み希望", days: [21, 22], reason: "試験", status: "adjusting", createdAt: "2026-02-24", reviewedAt: "2026-02-24T14:00:00+09:00", reviewedByName: "飲食担当", adjustmentNote: "土日のため片日のみで再調整してください。" }
     ],
     shiftRequirements: dayHeaders.flatMap(({ day }) => [
       { storeId: "shibuya", day, code: "OP", required: pickByDay([3, 3, 2, 2, 2, 3, 4], day) },
