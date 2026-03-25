@@ -24,4 +24,7 @@ if [ "$needs_install" = "true" ]; then
   cp package-lock.json "$LOCKFILE_STAMP"
 fi
 
-exec npm run dev -- --hostname 0.0.0.0
+echo "Building Next.js app for Docker startup..."
+npx next build --webpack
+
+exec sh -c 'exec npx next start --hostname 0.0.0.0 --port 3000 </dev/null'
